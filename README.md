@@ -1,5 +1,8 @@
 # OpenIDEA 语言服务器离线包（Windows x64）
 
+[![Release](https://github.com/zmh69695328/openidea-language-servers/actions/workflows/release.yml/badge.svg)](https://github.com/zmh69695328/openidea-language-servers/actions/workflows/release.yml)
+[**↓ 下载最新离线包**](https://github.com/zmh69695328/openidea-language-servers/releases/latest)
+
 给 [OpenIDEA](https://github.com/l0ng-ai/openidea) 用的**免联网、开箱即用**语言服务器与调试器合集。
 解压后双击 `install.cmd`，所有工具落到 OpenIDEA 自己的托管目录，不需要 npm / pip / JDK / Node，
 也不需要改 OpenIDEA 源码。
