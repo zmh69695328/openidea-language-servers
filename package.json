@@ -1,0 +1,14 @@
+{
+  "name": "openidea-language-servers",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline, out-of-the-box language server bundle for OpenIDEA on Windows",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:verify": "node scripts/build.mjs --verify",
+    "verify": "node scripts/verify.mjs",
+    "clean": "node -e \"require('fs').rmSync('build',{recursive:true,force:true});require('fs').rmSync('dist',{recursive:true,force:true})\""
+  }
+}

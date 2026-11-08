@@ -1,0 +1,76 @@
+name: Release offline language servers
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Monday 04:00 CST (Sunday 20:00 UTC).
+    - cron: "0 20 * * 0"
+  push:
+    tags: ["lsp-v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lsp-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # Downloads Node/JDK/servers, assembles payload/, runs the 12 LSP/DAP handshakes, zips.
+      - name: Build and verify
+        run: node scripts/build.mjs --verify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show summary
+        shell: pwsh
+        run: |
+          Get-Content dist/index.json
+          Get-Content dist/RELEASE_NOTES.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/index.json
+            dist/RELEASE_NOTES.md
+
+      - name: Publish release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content dist/lsp-version.txt -Raw).Trim()
+          if ("${{ github.ref_type }}" -eq "tag") { $tag = "${{ github.ref_name }}" } else { $tag = "lsp-v$version" }
+
+          # PowerShell does not expand wildcards for native commands: pass the file list.
+          $assets = @(Get-ChildItem dist -File |
+            Where-Object { $_.Name -match '\.zip(\.sha256)?$' -or $_.Name -eq 'index.json' } |
+            ForEach-Object FullName)
+          Write-Host "Assets: $($assets -join ', ')"
+
+          gh release view $tag --json tagName *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag exists; replacing its assets."
+            gh release upload $tag @assets --clobber
+            gh release edit $tag --notes-file dist/RELEASE_NOTES.md
+          } else {
+            gh release create $tag @assets `
+              --title "OpenIDEA 语言服务器离线包 $version" `
+              --notes-file dist/RELEASE_NOTES.md
+          }
+
+          Write-Host "Published: https://github.com/${{ github.repository }}/releases/tag/$tag"
