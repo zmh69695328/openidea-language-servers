@@ -25,9 +25,17 @@ jobs:
         with:
           node-version: 22
 
-      # Downloads Node/JDK/servers, assembles payload/, runs the 12 LSP/DAP handshakes, zips.
+      # Downloads Node/JDK/servers, assembles payload/, runs the 17 LSP/DAP handshakes, zips.
       - name: Build and verify
-        run: node scripts/build.mjs --verify
+        shell: pwsh
+        run: |
+          node scripts/build.mjs --verify 2>&1 | Tee-Object -FilePath build.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            $tail = (Get-Content build.log -Tail 15 -ErrorAction SilentlyContinue) -join " ~~ "
+            Write-Host "::error::build failed ($code): $tail"
+            exit $code
+          }
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
