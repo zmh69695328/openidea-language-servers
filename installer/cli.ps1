@@ -13,15 +13,22 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "engine.ps1")
 
+# `-File` passes "ts,python" as one string: split it so multi-select works from the GUI and CLI.
+$Install = @($Install | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$Uninstall = @($Uninstall | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
 $bundle = Read-Bundle -Root $PSScriptRoot
 if (-not $ToolsDir) { $ToolsDir = Get-DefaultToolsDir }
 
 function Write-Log {
     param([string]$Text)
-    Write-Host $Text
-    if ($LogFile) {
-        try { Add-Content -LiteralPath $LogFile -Value $Text -Encoding UTF8 } catch { }
+    if ($Text.StartsWith("@")) {
+        if ($LogFile) { try { Add-Content -LiteralPath $LogFile -Value $Text -Encoding UTF8 } catch { } }
+        return
     }
+    $stamped = "[" + (Get-Date -Format "HH:mm:ss") + "] " + $Text
+    Write-Host $Text
+    if ($LogFile) { try { Add-Content -LiteralPath $LogFile -Value $stamped -Encoding UTF8 } catch { } }
 }
 
 function Fail {
@@ -38,8 +45,13 @@ if ($List -or ($Install.Count -eq 0 -and $Uninstall.Count -eq 0 -and -not $All))
         $installed = Test-ComponentInstalled $ToolsDir $component
         $version = Get-ComponentInstalledVersion $state $component.id
         $mark = "  "
-        if ($installed) { $mark = "✓ " }
-        Write-Log ($mark + $component.id + "  [" + $component.version + "]  " + $component.name + "  " + $component.category)
+        $stateText = "未安装"
+        if ($installed) {
+            $mark = "✓ "
+            if ($version) { $stateText = "已装 " + $version } else { $stateText = "已安装" }
+        }
+        Write-Log ($mark + $component.id.PadRight(14) + " " + $stateText)
+        Write-Log ("   " + "".PadRight(14) + " 包内 " + $component.version + "  ·  " + $component.name + "  ·  " + $component.category + "  ·  " + (Format-Size $component.sizeBytes))
     }
     Write-Log "DONE|ok"
     exit 0
@@ -48,20 +60,21 @@ if ($List -or ($Install.Count -eq 0 -and $Uninstall.Count -eq 0 -and -not $All))
 try {
     if ($All) { $Install = @($bundle.components | Where-Object { $_.id -ne "npm-shared" } | ForEach-Object { $_.id }) }
 
+    Write-Log ("包版本 " + $bundle.version + "，目标目录 " + $ToolsDir)
     if ($Install.Count -gt 0) {
         if (-not $Force) {
             $running = Get-Process -Name "openidea" -ErrorAction SilentlyContinue
             if ($running) { Fail "OpenIDEA 正在运行，请先退出（或加 -Force）" }
         }
-        $n = Install-Components -Bundle $bundle -ToolsDir $ToolsDir -Ids $Install -OnStep { param($msg) Write-Log $msg }
-        Write-Log ("已安装/更新 " + $n + " 个组件")
+        Write-Log ("要安装：" + ($Install -join ", "))
+        $result = Install-Components -Bundle $bundle -ToolsDir $ToolsDir -Ids $Install -OnLog { param($msg) Write-Log $msg }
     }
 
     if ($Uninstall.Count -gt 0) {
         $running = Get-Process -Name "openidea" -ErrorAction SilentlyContinue
         if ($running -and -not $Force) { Fail "OpenIDEA 正在运行，请先退出（或加 -Force）" }
-        $n = Uninstall-Components -Bundle $bundle -ToolsDir $ToolsDir -Ids $Uninstall -OnStep { param($msg) Write-Log $msg }
-        Write-Log ("已卸载 " + $n + " 个组件")
+        Write-Log ("要卸载：" + ($Uninstall -join ", "))
+        $result = Uninstall-Components -Bundle $bundle -ToolsDir $ToolsDir -Ids $Uninstall -OnLog { param($msg) Write-Log $msg }
     }
 
     Write-Log "DONE|ok"

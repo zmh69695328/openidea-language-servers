@@ -136,7 +136,8 @@ $xaml = @'
             <Button x:Name="SelectAll" Content="全选" Style="{StaticResource Small}" Margin="0,0,6,0"/>
             <Button x:Name="SelectNone" Content="全不选" Style="{StaticResource Small}" Margin="0,0,6,0"/>
             <Button x:Name="Refresh" Content="刷新" Style="{StaticResource Small}"/>
-            <TextBlock x:Name="TargetText" FontSize="12" Foreground="#9CA3AF" VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <TextBlock x:Name="SelectedText" FontSize="12" Foreground="#4B5563" VerticalAlignment="Center" Margin="14,0,0,0"/>
+            <TextBlock x:Name="TargetText" FontSize="12" Foreground="#9CA3AF" VerticalAlignment="Center" Margin="10,0,0,0"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button x:Name="Uninstall" Content="卸载选中" Style="{StaticResource Ghost}" Margin="0,0,10,0" IsEnabled="False"/>
@@ -170,6 +171,7 @@ $SelectNone = $window.FindName("SelectNone")
 $RefreshButton = $window.FindName("Refresh")
 $CloseButton = $window.FindName("Close")
 $TargetText = $window.FindName("TargetText")
+$SelectedText = $window.FindName("SelectedText")
 $window.FindName("BundleVersionText").Text = "离线包 " + $bundle.version
 $appText = "未检测到已安装的 OpenIDEA"
 if ($appVersion) { $appText = "已安装 OpenIDEA " + $appVersion }
@@ -186,9 +188,13 @@ function Format-Size([double]$bytes) {
 
 $script:checks = @()
 $script:checksById = @{}
+$script:rowsById = @{}
+$script:componentSize = @{}
 $script:installed = @{}
 $script:installedVersions = @{}
 $script:updating = $false
+$script:busy = $false
+$script:summary = ""
 $script:previewMode = [bool]$Preview
 $script:proc = $null
 $script:logFile = $null
@@ -206,16 +212,74 @@ function Update-Actions {
     $selected = @($script:checks | Where-Object { $_.IsChecked -eq $true -and $_.IsEnabled } | ForEach-Object { [string]$_.Tag })
     $toInstall = @($selected | Where-Object { -not $script:installed[$_] })
     $toUninstall = @($selected | Where-Object { $script:installed[$_] })
-    $InstallButton.IsEnabled = ($toInstall.Count -gt 0) -and (-not $script:proc -or $script:proc.HasExited)
-    $UninstallButton.IsEnabled = ($toUninstall.Count -gt 0) -and (-not $script:proc -or $script:proc.HasExited)
+    $size = 0.0
+    foreach ($id in $selected) { $size += [double]$script:componentSize[$id] }
+    $plan = @{}
+    foreach ($id in $toInstall) {
+        foreach ($dep in (Resolve-Closure $bundle @($id))) {
+            if (-not $script:installed[$dep]) { $plan[$dep] = $true }
+        }
+    }
+    $planSize = 0.0
+    foreach ($id in $plan.Keys) { $planSize += [double]$script:componentSize[$id] }
+    if ($toInstall.Count -gt 0) {
+        $SelectedText.Text = "已选 " + $selected.Count + " 个 · 将安装 " + $plan.Count + " 个（含依赖）· 约 " + (Format-Size $planSize)
+    } elseif ($selected.Count -gt 0) {
+        $SelectedText.Text = "已选 " + $selected.Count + " 个 · 约 " + (Format-Size $size)
+    } else {
+        $SelectedText.Text = ""
+    }
+
+    $busy = $script:busy
+    $InstallButton.IsEnabled = (-not $busy) -and ($toInstall.Count -gt 0)
+    $UninstallButton.IsEnabled = (-not $busy) -and ($toUninstall.Count -gt 0)
+
+    if ($busy) { return }
     if ($selected.Count -eq 0) {
-        $StatusText.Text = "选择组件后点击「安装选中」或「卸载选中」。"
+        $StatusText.Text = "勾选组件后点击「安装选中」或「卸载选中」。"
+        $StatusText.Foreground = Brush "#4B5563"
     } elseif ($toInstall.Count -gt 0 -and $toUninstall.Count -eq 0) {
-        $StatusText.Text = "将安装 " + $toInstall.Count + " 个组件。"
+        $StatusText.Text = "将安装 " + $toInstall.Count + " 个组件（含依赖）。"
+        $StatusText.Foreground = Brush "#4B5563"
     } elseif ($toUninstall.Count -gt 0 -and $toInstall.Count -eq 0) {
         $StatusText.Text = "将卸载 " + $toUninstall.Count + " 个组件。"
+        $StatusText.Foreground = Brush "#4B5563"
     } else {
-        $StatusText.Text = "将安装 " + $toInstall.Count + " 个，卸载 " + $toUninstall.Count + " 个。"
+        $StatusText.Text = "将安装 " + $toInstall.Count + " 个、卸载 " + $toUninstall.Count + " 个。"
+        $StatusText.Foreground = Brush "#4B5563"
+    }
+}
+
+function Set-Busy {
+    param([bool]$On)
+    $script:busy = $On
+    foreach ($box in $script:checks) {
+        $box.IsEnabled = (-not $On) -and ($box.Tag -ne "npm-shared")
+    }
+    $SelectAll.IsEnabled = -not $On
+    $SelectNone.IsEnabled = -not $On
+    $RefreshButton.IsEnabled = -not $On
+    $CloseButton.IsEnabled = -not $On
+    if ($On) {
+        $InstallButton.Content = "正在处理…"
+        $UninstallButton.Content = "正在处理…"
+        $InstallButton.IsEnabled = $false
+        $UninstallButton.IsEnabled = $false
+    } else {
+        $InstallButton.Content = "安装选中"
+        $UninstallButton.Content = "卸载选中"
+        Update-Actions
+    }
+}
+
+function Set-RowState {
+    param([string]$Id, [string]$State)
+    $row = $script:rowsById[$Id]
+    if (-not $row) { return }
+    switch ($State) {
+        "active" { $row.BorderBrush = Brush "#2F6BFF"; $row.Background = Brush "#F3F7FF" }
+        "done" { $row.BorderBrush = Brush "#BFE3CB"; $row.Background = Brush "#F6FCF8" }
+        default { $row.BorderBrush = Brush "#E7EAF2"; $row.Background = Brush "#FFFFFF" }
     }
 }
 
@@ -352,6 +416,7 @@ function New-Row {
     $grid.Children.Add($size) | Out-Null
 
     $border.Child = $grid
+    $script:rowsById[$Component.id] = $border
     return $border
 }
 
@@ -360,6 +425,8 @@ function Update-Rows {
     $RowsPanel.Children.Clear()
     $script:checks = @()
     $script:checksById = @{}
+    $script:rowsById = @{}
+    $script:componentSize = @{}
     $script:installed = @{}
     $script:installedVersions = @{}
 
@@ -385,6 +452,7 @@ function Update-Rows {
 
     $category = ""
     foreach ($component in $bundle.components) {
+        $script:componentSize[$component.id] = $component.sizeBytes
         if ($component.category -ne $category) {
             $category = $component.category
             $RowsPanel.Children.Add((New-CategoryHeader $category)) | Out-Null
@@ -403,37 +471,72 @@ function Invoke-Cli {
     New-Item -ItemType File -Force -Path $script:logFile | Out-Null
     $cli = Join-Path $PSScriptRoot "cli.ps1"
     $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $cli, "-ToolsDir", $ToolsDir, "-LogFile", $script:logFile, "-Force") + $Arguments
-    $script:proc = Start-Process -FilePath "powershell.exe" -ArgumentList $argList -PassThru -WindowStyle Hidden
-    $Progress.IsIndeterminate = $true
-    $StatusText.Text = "正在处理…"
+    $script:summary = ""
+    Set-Busy $true
+    $Progress.Value = 0
+    $Progress.IsIndeterminate = $false
+    $StatusText.Text = "正在准备…"
+    $StatusText.Foreground = Brush "#4B5563"
     $LogExpander.IsExpanded = $true
     $LogBox.Text = ""
+    $script:proc = Start-Process -FilePath "powershell.exe" -ArgumentList $argList -PassThru -WindowStyle Hidden
     $script:timer.Start()
-    Update-Actions
 }
 
 $script:timer = New-Object System.Windows.Threading.DispatcherTimer
-$script:timer.Interval = [TimeSpan]::FromMilliseconds(700)
+$script:timer.Interval = [TimeSpan]::FromMilliseconds(500)
 $script:timer.add_Tick({
         if ($script:logFile -and (Test-Path -LiteralPath $script:logFile)) {
             $lines = @(Get-Content -LiteralPath $script:logFile -Encoding UTF8 -ErrorAction SilentlyContinue)
             if ($lines.Count -gt 0) {
-                $LogBox.Text = ($lines -join "`r`n")
+                $visible = New-Object System.Collections.Generic.List[string]
+                foreach ($line in $lines) {
+                    if ($line -match '^@PROGRESS\|(\d+)\|(\d+)$') {
+                        $doneCount = [double]$matches[1]
+                        $totalCount = [double]$matches[2]
+                        if ($totalCount -gt 0) {
+                            $Progress.IsIndeterminate = $false
+                            $Progress.Value = [Math]::Min(100, ($doneCount / $totalCount) * 100)
+                        }
+                    } elseif ($line -match '^@STEP\|(install|uninstall)\|(.+)$') {
+                        Set-RowState $matches[2] "active"
+                    } elseif ($line -match '^@STEP\|done\|(.+)$') {
+                        Set-RowState $matches[1] "done"
+                    } elseif ($line -match '^@SUMMARY\|(.+)$') {
+                        $script:summary = $matches[1]
+                    } else {
+                        $visible.Add($line)
+                    }
+                }
+                $LogBox.Text = ($visible -join "`r`n")
                 $LogBox.ScrollToEnd()
-                $last = $lines[-1]
-                if ($last -notmatch '^DONE\|') { $StatusText.Text = $last }
+                if ($visible.Count -gt 0) { $StatusText.Text = $visible[$visible.Count - 1] }
             }
         }
         if ($script:proc -and $script:proc.HasExited) {
             $script:timer.Stop()
             $Progress.IsIndeterminate = $false
-            if ($script:proc.ExitCode -eq 0) {
-                $StatusText.Text = "完成。重启 OpenIDEA 后生效。"
-            } else {
-                $StatusText.Text = "操作失败，请查看下方日志。"
-            }
+            Set-Busy $false
+            $ok = ($script:proc.ExitCode -eq 0)
             $script:proc = $null
             Update-Rows
+            if ($ok) {
+                $message = "完成。重启 OpenIDEA 后生效。"
+                if ($script:summary -match 'installed=(\d+);skipped=(\d+);bytes=(\d+)') {
+                    $message = "已安装/更新 " + $matches[1] + " 个组件"
+                    if ([int]$matches[2] -gt 0) { $message += "，跳过 " + $matches[2] + " 个已是最新的" }
+                    $message += "，共 " + (Format-Size ([double]$matches[3])) + "。重启 OpenIDEA 后生效。"
+                } elseif ($script:summary -match 'removed=(\d+);bytes=(\d+)') {
+                    $message = "已卸载 " + $matches[1] + " 个组件，释放约 " + (Format-Size ([double]$matches[2])) + "。"
+                }
+                $StatusText.Text = $message
+                $StatusText.Foreground = Brush "#15803D"
+                $Progress.Value = 100
+            } else {
+                $StatusText.Text = "操作失败，请查看下方日志。"
+                $StatusText.Foreground = Brush "#B91C1C"
+                $LogExpander.IsExpanded = $true
+            }
         }
     })
 

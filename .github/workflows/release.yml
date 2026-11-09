@@ -29,6 +29,9 @@ jobs:
       - name: Build and verify
         shell: pwsh
         run: |
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -like "lsp-v*") {
+            $env:BUNDLE_VERSION = "${{ github.ref_name }}" -replace '^lsp-v', ''
+          }
           node scripts/build.mjs --verify 2>&1 | Tee-Object -FilePath build.log
           $code = $LASTEXITCODE
           if ($code -ne 0) {

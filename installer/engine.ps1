@@ -108,19 +108,50 @@ function Remove-EmptyDirs {
     }
 }
 
+function Format-Size {
+    param([double]$Bytes)
+    if ($Bytes -ge 1073741824) { return ("{0:N2} GB" -f ($Bytes / 1073741824)) }
+    if ($Bytes -ge 1048576) { return ("{0:N0} MB" -f ($Bytes / 1048576)) }
+    if ($Bytes -ge 1024) { return ("{0:N0} KB" -f ($Bytes / 1024)) }
+    return ("{0:N0} B" -f $Bytes)
+}
+
 function Install-Components {
-    param($Bundle, [string]$ToolsDir, [string[]]$Ids, [scriptblock]$OnStep)
+    param($Bundle, [string]$ToolsDir, [string[]]$Ids, [scriptblock]$OnLog)
 
     $state = Read-State $ToolsDir
     $closure = Resolve-Closure $Bundle $Ids
-    $count = 0
-    foreach ($component in $Bundle.components) {
-        if ($closure -notcontains $component.id) { continue }
+    $queue = @($Bundle.components | Where-Object { $closure -contains $_.id })
+    $total = $queue.Count
+    $done = 0
+    $installed = 0
+    $skipped = 0
+    $bytes = 0
+
+    if ($total -eq 0) {
+        if ($OnLog) { & $OnLog "没有需要安装的组件。" }
+        return @{ installed = 0; skipped = 0; bytes = 0 }
+    }
+
+    foreach ($component in $queue) {
         $already = (Test-ComponentInstalled $ToolsDir $component) -and
             $state.components.ContainsKey($component.id) -and
             ([string]$state.components[$component.id].version -eq [string]$component.version)
-        if ($already) { continue }
-        if ($OnStep) { & $OnStep ("安装 " + $component.name + "…") }
+        if ($already) {
+            $skipped++
+            $done++
+            if ($OnLog) {
+                & $OnLog ("跳过 " + $component.name + "（已是最新）")
+                & $OnLog ("@PROGRESS|" + $done + "|" + $total)
+            }
+            continue
+        }
+
+        $done++
+        if ($OnLog) {
+            & $OnLog ("@STEP|install|" + $component.id)
+            & $OnLog ("[" + $done + "/" + $total + "] 安装 " + $component.name + "（" + (Format-Size $component.sizeBytes) + "）…")
+        }
         foreach ($rel in $component.paths) {
             if ($rel -match '\.\.' -or [System.IO.Path]::IsPathRooted($rel)) { throw "非法路径：$rel" }
             $src = Join-Path (Join-Path $Bundle.Root "payload") $rel
@@ -134,32 +165,62 @@ function Install-Components {
                 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
                 Copy-Item -LiteralPath $src -Destination $dst -Force
             }
+            if ($OnLog) { & $OnLog ("    + " + $rel) }
         }
         $state.components[$component.id] = @{ version = [string]$component.version; installedAt = (Get-Date).ToString("o") }
         Save-State $ToolsDir $state
-        $count++
+        $installed++
+        $bytes += [double]$component.sizeBytes
+        if ($OnLog) {
+            & $OnLog ("@PROGRESS|" + $done + "|" + $total)
+            & $OnLog ("@STEP|done|" + $component.id)
+        }
     }
-    return $count
+
+    if ($OnLog) {
+        & $OnLog ("@SUMMARY|installed=" + $installed + ";skipped=" + $skipped + ";bytes=" + [long]$bytes)
+        & $OnLog ("完成：安装/更新 " + $installed + " 个，跳过 " + $skipped + " 个，约 " + (Format-Size $bytes) + "。")
+    }
+    return @{ installed = $installed; skipped = $skipped; bytes = $bytes }
 }
 
 function Uninstall-Components {
-    param($Bundle, [string]$ToolsDir, [string[]]$Ids, [scriptblock]$OnStep)
+    param($Bundle, [string]$ToolsDir, [string[]]$Ids, [scriptblock]$OnLog)
 
     $state = Read-State $ToolsDir
-    $count = 0
-    foreach ($id in $Ids) {
-        $component = Get-Component $Bundle $id
-        if (-not $component) { continue }
-        if ($OnStep) { & $OnStep ("卸载 " + $component.name + "…") }
+    $queue = @($Ids | ForEach-Object { Get-Component $Bundle $_ } | Where-Object { $_ })
+    $total = $queue.Count
+    $done = 0
+    $removed = 0
+    $bytes = 0
+
+    foreach ($component in $queue) {
+        $done++
+        if ($OnLog) {
+            & $OnLog ("@STEP|uninstall|" + $component.id)
+            & $OnLog ("[" + $done + "/" + $total + "] 卸载 " + $component.name + "（" + (Format-Size $component.sizeBytes) + "）…")
+        }
         foreach ($rel in $component.paths) {
             if ($rel -match '\.\.' -or [System.IO.Path]::IsPathRooted($rel)) { throw "非法路径：$rel" }
             $path = Join-Path $ToolsDir $rel
-            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Recurse -Force
+                if ($OnLog) { & $OnLog ("    - " + $rel) }
+            }
         }
-        if ($state.components.ContainsKey($id)) { $state.components.Remove($id) }
+        if ($state.components.ContainsKey($component.id)) { $state.components.Remove($component.id) }
         Save-State $ToolsDir $state
-        $count++
+        $removed++
+        $bytes += [double]$component.sizeBytes
+        if ($OnLog) {
+            & $OnLog ("@PROGRESS|" + $done + "|" + $total)
+            & $OnLog ("@STEP|done|" + $component.id)
+        }
     }
     Remove-EmptyDirs $ToolsDir
-    return $count
+    if ($OnLog) {
+        & $OnLog ("@SUMMARY|removed=" + $removed + ";bytes=" + [long]$bytes)
+        & $OnLog ("完成：卸载 " + $removed + " 个组件，释放约 " + (Format-Size $bytes) + "。")
+    }
+    return @{ removed = $removed; bytes = $bytes }
 }
