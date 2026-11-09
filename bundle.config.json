@@ -1,20 +1,23 @@
 {
-  "id": "openidea-language-servers",
-  "platform": "windows-x64",
-  "flavor": "full",
-  "node": "lts",
-  "jdkFeature": 25,
-  "npm": {
-    "@vtsls/language-server": "latest",
-    "@vue/language-server": "latest",
-    "typescript": "6",
-    "vscode-langservers-extracted": "latest",
-    "yaml-language-server": "latest",
-    "pyright": "latest"
-  },
-  "compat": {
-    "minAppVersion": "0.1.38",
-    "testedAppVersions": ["0.1.38"],
-    "note": "Tool names and commands follow l0ng-ai/openidea languages/*.toml and crates/ide-tools registry of the recorded commit."
-  }
+    "id":  "openidea-language-servers",
+    "platform":  "windows-x64",
+    "flavor":  "full",
+    "node":  "lts",
+    "jdkFeature":  25,
+    "npm":  {
+                "@vtsls/language-server":  "latest",
+                "@vue/language-server":  "latest",
+                "typescript":  "6",
+                "vscode-langservers-extracted":  "latest",
+                "yaml-language-server":  "latest",
+                "pyright":  "latest",
+                "bash-language-server":  "latest"
+            },
+    "compat":  {
+                   "minAppVersion":  "0.1.38",
+                   "testedAppVersions":  [
+                                             "0.1.38"
+                                         ],
+                   "note":  "Tool names and commands follow l0ng-ai/openidea languages/*.toml and crates/ide-tools registry of the recorded commit."
+               }
 }

@@ -180,6 +180,62 @@ export const jsDebug = () => githubAsset("microsoft/vscode-js-debug", /^js-debug
 export const marksman = () => githubAsset("artempyanykh/marksman", /^marksman\.exe$/);
 export const taplo = () => githubAsset("tamasfe/taplo", /^taplo-windows-x86_64\.zip$/);
 export const ruff = () => githubAsset("astral-sh/ruff", /^ruff-x86_64-pc-windows-msvc\.zip$/);
+export const lemminx = () => githubAsset("redhat-developer/vscode-xml", /^lemminx-win32\.zip$/);
+export const sqls = () => githubAsset("sqls-server/sqls", /^sqls-windows-.*\.zip$/);
+
+/** The Go toolchain used to build gopls (not shipped in the bundle). */
+export async function goToolchain() {
+  return cached("go-toolchain", async () => {
+    const info = await getJson("https://go.dev/dl/?mode=json");
+    const stable = info.find((r) => r.stable);
+    const file = stable.files.find((f) => f.os === "windows" && f.arch === "amd64" && f.kind === "archive");
+    if (!file) throw new Error("no Go windows-amd64 archive");
+    return {
+      name: "Go",
+      version: stable.version.replace(/^go/, ""),
+      url: `https://go.dev/dl/${file.filename}`,
+      file: file.filename,
+      sha256: file.sha256,
+    };
+  });
+}
+
+/** Latest gopls release tag (`gopls/vX.Y.Z`), from the releases page (no API quota). */
+export async function goplsVersion() {
+  return cached("gopls-version", async () => {
+    const page = await getText("https://github.com/golang/tools/releases");
+    const tags = [
+      ...new Set(
+        [...page.matchAll(/\/golang\/tools\/releases\/tag\/(gopls(?:%2F|\/)v[0-9][^"']*)/g)].map((m) =>
+          decodeURIComponent(m[1]),
+        ),
+      ),
+    ]
+      .map((t) => t.replace(/^gopls\/v/, "").replace(/^v/, ""))
+      .filter((v) => /^\d+\.\d+\.\d+/.test(v))
+      .sort((a, b) => {
+        const pa = a.split(".").map(Number);
+        const pb = b.split(".").map(Number);
+        return pb[0] - pa[0] || pb[1] - pa[1] || pb[2] - pa[2];
+      });
+    if (!tags[0]) throw new Error("no gopls release found");
+    return tags[0];
+  });
+}
+
+/** Prominic Groovy language server, shipped as a fat jar inside a VS Code extension. */
+export async function groovyServer() {
+  return cached("groovy", async () => {
+    const meta = await getJson("https://open-vsx.org/api/batlehub/java-groovy/latest");
+    return {
+      name: "Groovy Language Server",
+      version: meta.version,
+      url: meta.files.download,
+      file: path.basename(new URL(meta.files.download).pathname),
+      checksumUrl: meta.files.sha256,
+    };
+  });
+}
 
 /** Microsoft java-debug (the jdtls bundle) from Open VSX. */
 async function javaDebugResolve() {

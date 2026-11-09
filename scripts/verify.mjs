@@ -35,6 +35,11 @@ await fs.writeFile(path.join(work, "README.md"), "# verify\n\n[link](./test.py)\
 await fs.writeFile(path.join(work, "data.json"), '{ "a": 1 }\n');
 await fs.writeFile(path.join(work, "config.yaml"), "a: 1\n");
 await fs.writeFile(path.join(work, "Cargo.toml"), '[package]\nname = "verify"\n');
+await fs.writeFile(path.join(work, "main.go"), 'package main\n\nfunc main() { println("hi") }\n');
+await fs.writeFile(path.join(work, "script.groovy"), 'def greet(name) { "hello ${name}" }\nprintln greet("world")\n');
+await fs.writeFile(path.join(work, "pom.xml"), '<?xml version="1.0"?><project><modelVersion>4.0.0</modelVersion></project>\n');
+await fs.writeFile(path.join(work, "script.sh"), '#!/usr/bin/env bash\nset -euo pipefail\necho hi\n');
+await fs.writeFile(path.join(work, "query.sql"), 'SELECT 1 AS one;\n');
 
 const uri = (p) => `file:///${p.replace(/\\/g, "/")}`;
 const rootUri = uri(work);
@@ -50,6 +55,11 @@ const tests = [
   { name: "marksman", exe: "marksman/bin/marksman.exe", args: ["server"], languageId: "markdown", file: "README.md", timeout: 60 },
   { name: "taplo", exe: "taplo/bin/taplo.exe", args: ["lsp", "stdio"], languageId: "toml", file: "Cargo.toml", timeout: 60 },
   { name: "ruff", exe: "ruff/bin/ruff.exe", args: ["server"], languageId: "python", file: "test.py", timeout: 60 },
+  { name: "gopls (Go)", exe: "gopls/bin/gopls.exe", args: [], languageId: "go", file: "main.go", timeout: 90 },
+  { name: "lemminx (XML)", exe: "lemminx/bin/lemminx.exe", args: [], languageId: "xml", file: "pom.xml", timeout: 60 },
+  { name: "bash-language-server", exe: "node_modules/.bin/bash-language-server.cmd", args: ["start"], languageId: "shellscript", file: "script.sh", timeout: 60 },
+  { name: "sqls (SQL)", exe: "sqls/bin/sqls.exe", args: [], languageId: "sql", file: "query.sql", timeout: 60 },
+  { name: "groovy-language-server", exe: "groovy-language-server/bin/groovy-language-server.cmd", args: [], languageId: "groovy", file: "script.groovy", timeout: 120 },
   { name: "jdtls (Java)", exe: "jdtls/bin/jdtls.cmd", args: ["-data", path.join(dataDir, "jdtls-workspace")], languageId: "java", file: "index.ts", timeout: 180 },
 ];
 

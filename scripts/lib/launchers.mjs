@@ -52,3 +52,18 @@ export async function writeJsDebugLauncher(payloadDir) {
     "EXIT /B %ERRORLEVEL%",
   ]);
 }
+
+/** `groovy-language-server` the IDE launches: the Prominic fat jar on the bundled JDK. */
+export async function writeGroovyLauncher(payloadDir, { jdkDir, jarName }) {
+  const bin = path.join(payloadDir, "groovy-language-server", "bin");
+  await ensureDir(bin);
+  await write(path.join(bin, "groovy-language-server.cmd"), [
+    "@ECHO OFF",
+    "SETLOCAL",
+    `IF NOT DEFINED JAVA_HOME SET "JAVA_HOME=%~dp0..\\..\\jdks\\${jdkDir}"`,
+    'SET "_JAVA=%JAVA_HOME%\\bin\\java.exe"',
+    'IF NOT EXIST "%_JAVA%" SET "_JAVA=java"',
+    `"%_JAVA%" -jar "%~dp0${jarName}" %*`,
+    "EXIT /B %ERRORLEVEL%",
+  ]);
+}

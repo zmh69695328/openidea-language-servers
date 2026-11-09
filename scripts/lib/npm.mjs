@@ -46,8 +46,7 @@ export async function readInstalled(payloadDir) {
   const readPackage = async (dir) => {
     try {
       const json = JSON.parse(await fs.readFile(path.join(dir, "package.json"), "utf8"));
-      const bin = normalizeBin(json.name, json.bin);
-      if (json.name && bin) out.push({ dir, name: json.name, version: json.version, bin });
+      if (json.name) out.push({ dir, name: json.name, version: json.version, bin: normalizeBin(json.name, json.bin) });
     } catch {
       // not a package directory
     }
@@ -84,7 +83,7 @@ export async function writeBinWrappers(payloadDir, installed) {
   let count = 0;
   for (const pkg of installed) {
     const pkgDir = path.relative(binDir, pkg.dir).replace(/\//g, "\\");
-    for (const [command, entry] of Object.entries(pkg.bin)) {
+    for (const [command, entry] of Object.entries(pkg.bin ?? {})) {
       const target = path.posix.join(pkgDir.replace(/\\/g, "/"), entry);
       await fs.writeFile(
         path.join(binDir, `${command}.cmd`),
