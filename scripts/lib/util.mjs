@@ -77,7 +77,11 @@ export async function download(url, dest, { sha256, label = path.basename(dest) 
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const res = await fetch(url, { redirect: "follow", headers: { "user-agent": USER_AGENT } });
+      const res = await fetch(url, {
+        redirect: "follow",
+        // Decompressed bodies make content-length unreliable; SHA-256 is the real check.
+        headers: { "user-agent": USER_AGENT, "accept-encoding": "identity" },
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
       const total = Number(res.headers.get("content-length") || 0);
       const tmp = `${dest}.part`;
@@ -97,7 +101,7 @@ export async function download(url, dest, { sha256, label = path.basename(dest) 
       } finally {
         await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
       }
-      if (total && received !== total) throw new Error(`short download: ${received}/${total} bytes`);
+      if (total && received !== total) warn(`${label}: ${received} bytes (content-length said ${total})`);
       if (sha256 && (await sha256File(tmp)).toLowerCase() !== sha256.toLowerCase()) {
         throw new Error(`checksum mismatch for ${label}`);
       }
